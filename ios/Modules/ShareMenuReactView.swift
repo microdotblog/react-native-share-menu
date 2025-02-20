@@ -4,6 +4,7 @@
 //
 //  Created by Gustavo Parreira on 28/07/2020.
 //  Modified by Veselin Stoyanov on 17/04/2021.
+//  Modified by Manton Reece on 2/20/2024.
 
 import Foundation
 import MobileCoreServices
@@ -45,6 +46,7 @@ public class ShareMenuReactView: NSObject {
         }
 
         extensionContext.completeRequest(returningItems: [], completionHandler: nil)
+        ShareMenuReactView.detachViewDelegate()
     }
 
     @objc
@@ -55,6 +57,7 @@ public class ShareMenuReactView: NSObject {
         }
 
         viewDelegate.openApp()
+        ShareMenuReactView.detachViewDelegate()
     }
 
     @objc(continueInApp:)
@@ -72,6 +75,7 @@ public class ShareMenuReactView: NSObject {
         }
 
         viewDelegate.continueInApp(with: items, and: extraData)
+        ShareMenuReactView.detachViewDelegate()
     }
 
     @objc(data:reject:)
@@ -125,21 +129,35 @@ public class ShareMenuReactView: NSObject {
                         }
                         semaphore.wait()
                     } else if provider.hasItemConformingToTypeIdentifier(kUTTypeImage as String) {
+						let has_png = provider.hasItemConformingToTypeIdentifier(kUTTypePNG as String)
                         provider.loadItem(forTypeIdentifier: kUTTypeImage as String, options: nil) { (item, error) in
                             let imageUrl: URL! = item as? URL
 
-                            if (imageUrl != nil) {
+							if imageUrl != nil {
                                 if let imageData = try? Data(contentsOf: imageUrl) {
                                     results.append([DATA_KEY: imageUrl.absoluteString, MIME_TYPE_KEY: self.extractMimeType(from: imageUrl)])
                                 }
-                            } else {
-                                let image: UIImage! = item as? UIImage
+                            }
+							else {
+								var imageData: Data? = nil
+                                let image: UIImage? = item as? UIImage
 
-                                if (image != nil) {
-                                    let imageData: Data! = image.pngData();
+								if let image = image {
+									imageData = image.pngData();
+								}
+								else {
+									// try as image data
+									imageData = item as? Data
+								}
 
+								if let imageData = imageData {
                                     // Creating temporary URL for image data (UIImage)
-                                    guard let imageURL = NSURL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("TemporaryScreenshot.png") else {
+									var filename = "TemporaryImage.jpg"
+									if has_png {
+										filename = "TemporaryImage.png"
+									}
+									
+                                    guard let imageURL = NSURL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(filename) else {
                                         return
                                     }
 
@@ -147,8 +165,9 @@ public class ShareMenuReactView: NSObject {
                                         // Writing the image to the URL
                                         try imageData.write(to: imageURL)
 
-                                        results.append([DATA_KEY: imageUrl.absoluteString, MIME_TYPE_KEY: imageURL.extractMimeType()])
-                                    } catch {
+                                        results.append([DATA_KEY: imageURL.absoluteString, MIME_TYPE_KEY: imageURL.extractMimeType()])
+                                    }
+									catch {
                                         callback(nil, NSException(name: NSExceptionName(rawValue: "Error"), reason:"Can't load image", userInfo:nil))
                                     }
                                 }
@@ -159,9 +178,26 @@ public class ShareMenuReactView: NSObject {
                         semaphore.wait()
                     } else if provider.hasItemConformingToTypeIdentifier(kUTTypeData as String) {
                         provider.loadItem(forTypeIdentifier: kUTTypeData as String, options: nil) { (item, error) in
-                            let url: URL! = item as? URL
+                            let url_item = item
+                            let url: URL! = url_item as? URL
+                            
+                            if url != nil {
+                                results.append([DATA_KEY: url.absoluteString, MIME_TYPE_KEY: self.extractMimeType(from: url)])
+                            }
+                            else if let itemDictionary = item as? NSDictionary,
+                                        let preprocessingResults = itemDictionary["NSExtensionJavaScriptPreprocessingResultsKey"] as? NSDictionary {
+                                         
+                                         let data = ["title": preprocessingResults["title"],
+                                                     "url": preprocessingResults["url"],
+                                                     "text": preprocessingResults["text"]]
+                                
 
-                            results.append([DATA_KEY: url.absoluteString, MIME_TYPE_KEY: self.extractMimeType(from: url)])
+                                         if let jsonData = try? JSONSerialization.data(withJSONObject: data),
+                                            let jsonString = String(data: jsonData, encoding: .utf8) {
+                                             // jsonString is the string representation of the preprocessing results
+                                             results.append([DATA_KEY: jsonString, MIME_TYPE_KEY: "application/json"])
+                                         }
+                                     }
 
                             semaphore.signal()
                         }
