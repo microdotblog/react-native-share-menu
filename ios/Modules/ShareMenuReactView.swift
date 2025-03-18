@@ -114,7 +114,12 @@ public class ShareMenuReactView: NSObject {
                         provider.loadItem(forTypeIdentifier: kUTTypeURL as String, options: nil) { (item, error) in
                             let url: URL! = item as? URL
 
-                            results.append([DATA_KEY: url.absoluteString, MIME_TYPE_KEY: "text/plain"])
+							if url.absoluteString.hasPrefix("file:///") {
+								results.append([DATA_KEY: url.absoluteString, MIME_TYPE_KEY: self.extractMimeType(from: url)])
+							}
+							else {
+								results.append([DATA_KEY: url.absoluteString, MIME_TYPE_KEY: "text/plain"])
+							}
 
                             semaphore.signal()
                         }
